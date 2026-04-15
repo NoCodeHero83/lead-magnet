@@ -12,5 +12,5 @@
 // Then paste the result as the apiKey value below.
 
 window.ZEROCODE_CONFIG = {
-  brevoApiKey: '',
+  brevoApiKey: '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',
 };
