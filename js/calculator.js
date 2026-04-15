@@ -5,18 +5,8 @@
 
 'use strict';
 
-// ── Brevo Configuration ─────────────────────────────────
-// API key is loaded from js/config.js (gitignored, never committed).
-// See js/config.js for instructions on how to populate it.
-const BREVO_CONFIG = {
-  apiKey:            (window.ZEROCODE_CONFIG || {}).brevoApiKey || '',
-  senderName:        'Zerocode',
-  senderEmail:       'andres@zerocode.la',   // verified sender in Brevo
-  notificationEmail: 'andres@zerocode.la',   // where lead alerts go
-};
-
-// Emails are only sent when a real API key is present
-const EMAIL_ENABLED = BREVO_CONFIG.apiKey.startsWith('xkeysib-');
+// Emails are sent via /api/send-email (Vercel serverless function).
+// The Brevo API key lives in Vercel Environment Variables — never in this file.
 
 // ── State ───────────────────────────────────────────────
 const state = {
@@ -285,55 +275,34 @@ async function handleShowResults() {
   sendEmails();
 }
 
-// ── Email Sending (Brevo API) ────────────────────────────
+// ── Email Sending (via Vercel serverless function) ───────
 function sendEmails() {
-  if (!EMAIL_ENABLED) {
-    console.info('[Zerocode] Brevo not configured — skipping email send.');
-    return;
-  }
-
-  const firstName   = state.leadName || 'there';
-  const breakevenTx = buildBreakevenText();
-  const industry    = (state.industry || 'other').replace(/_/g, ' ');
-  const bottleneck  = {
+  const bottleneckLabels = {
     cant_keep_up:  "Can't keep up with existing demand",
     want_to_enter: "Want to enter a new market",
     both:          "Both — existing demand + new market",
-  }[state.bottleneckType] || state.bottleneckType || '—';
+  };
 
-  // ── Email 1: Results to the user ──────────────────────
-  brevoSend({
-    to:      [{ email: state.leadEmail, name: firstName }],
-    subject: `Your operational bottleneck report — Zerocode`,
-    html:    buildUserEmail(firstName, breakevenTx),
-  }).catch(err => console.warn('[Zerocode] User email failed:', err));
+  const payload = {
+    firstName:   state.leadName || 'there',
+    leadName:    state.leadName,
+    leadEmail:   state.leadEmail,
+    leadLinkedIn: state.leadLinkedIn,
+    industry:    (state.industry || 'other').replace(/_/g, ' '),
+    bottleneck:  bottleneckLabels[state.bottleneckType] || state.bottleneckType || '—',
+    monthlyTotal: fmt(state.monthlyTotal),
+    annualTotal:  fmt(state.annualTotal),
+    breakeven:    buildBreakevenText(),
+    bdRevenue:    fmt(state.monthlyRevenueMissed),
+    bdLabor:      fmt(state.monthlyLaborRecoverable),
+    bdFees:       fmt(state.monthlyFeesRecoverable),
+  };
 
-  // ── Email 2: Lead notification to Zerocode ────────────
-  brevoSend({
-    to:      [{ email: BREVO_CONFIG.notificationEmail, name: 'Andres — Zerocode' }],
-    subject: `New lead: ${state.leadName || state.leadEmail} — ${fmt(state.monthlyTotal)}/mo`,
-    html:    buildLeadEmail(industry, bottleneck, breakevenTx),
-  }).catch(err => console.warn('[Zerocode] Lead notification failed:', err));
-}
-
-// Low-level Brevo send via fetch
-function brevoSend({ to, subject, html }) {
-  return fetch('https://api.brevo.com/v3/smtp/email', {
+  fetch('/api/send-email', {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'api-key': BREVO_CONFIG.apiKey,
-    },
-    body: JSON.stringify({
-      sender:      { name: BREVO_CONFIG.senderName, email: BREVO_CONFIG.senderEmail },
-      to,
-      subject,
-      htmlContent: html,
-    }),
-  }).then(res => {
-    if (!res.ok) res.text().then(t => console.warn('[Zerocode] Brevo response:', t));
-    return res;
-  });
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ userEmail: state.leadEmail, payload }),
+  }).catch(err => console.warn('[Zerocode] Email send failed:', err));
 }
 
 // ── Email HTML Builders ──────────────────────────────────
