@@ -1,0 +1,6 @@
+# API keys — never commit these
+js/config.js
+
+# OS files
+.DS_Store
+Thumbs.db
